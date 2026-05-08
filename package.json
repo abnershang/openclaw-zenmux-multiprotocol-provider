@@ -1,0 +1,59 @@
+{
+  "name": "openclaw-zenmux-multiprotocol-provider",
+  "version": "0.5.0-vulcan.1",
+  "description": "ZenMux LLM provider plugin for OpenClaw — multi-protocol with native OpenAI, Anthropic, and Vertex transports",
+  "license": "MIT",
+  "author": "Vulcan (fork of zenmux/openclaw-zenmux-provider v0.2.0)",
+  "type": "module",
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "llm",
+    "zenmux",
+    "ai",
+    "provider"
+  ],
+  "files": [
+    "dist/",
+    "src/",
+    "openclaw.plugin.json",
+    "README.md",
+    "FORK-NOTES.md",
+    "LICENSE"
+  ],
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "providers": [
+      "zenmux",
+      "zenmux-openai",
+      "zenmux-anthropic",
+      "zenmux-vertex"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.4.14",
+      "minGatewayVersion": "2026.4.14"
+    },
+    "build": {
+      "openclawVersion": "2026.4.14",
+      "pluginSdkVersion": "2026.4.14"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.4.14"
+  },
+  "devDependencies": {
+    "openclaw": "file:../../openclaw/openclaw",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

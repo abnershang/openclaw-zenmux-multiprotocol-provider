@@ -1,0 +1,67 @@
+{
+  "id": "zenmux-multiprotocol",
+  "name": "ZenMux Multi-Protocol Provider",
+  "description": "ZenMux LLM provider — native OpenAI, Anthropic, and Vertex transports over one API key",
+  "version": "0.3.0-vulcan.1",
+  "providers": ["zenmux", "zenmux-openai", "zenmux-anthropic", "zenmux-vertex"],
+  "modelSupport": {
+    "modelPrefixes": ["zenmux/", "zenmux-openai/", "zenmux-anthropic/", "zenmux-vertex/"]
+  },
+  "providerAuthEnvVars": {
+    "zenmux": ["ZENMUX_API_KEY"],
+    "zenmux-openai": ["ZENMUX_API_KEY"],
+    "zenmux-anthropic": ["ZENMUX_API_KEY"],
+    "zenmux-vertex": ["ZENMUX_API_KEY"]
+  },
+  "setup": {
+    "providers": [
+      {
+        "id": "zenmux",
+        "authMethods": ["api-key"],
+        "envVars": ["ZENMUX_API_KEY"]
+      },
+      {
+        "id": "zenmux-openai",
+        "authMethods": ["api-key"],
+        "envVars": ["ZENMUX_API_KEY"]
+      },
+      {
+        "id": "zenmux-anthropic",
+        "authMethods": ["api-key"],
+        "envVars": ["ZENMUX_API_KEY"]
+      },
+      {
+        "id": "zenmux-vertex",
+        "authMethods": ["api-key"],
+        "envVars": ["ZENMUX_API_KEY"]
+      }
+    ]
+  },
+  "providerAuthChoices": [
+    {
+      "provider": "zenmux",
+      "method": "api-key",
+      "choiceId": "zenmux-api-key",
+      "choiceLabel": "ZenMux API key",
+      "groupId": "zenmux",
+      "groupLabel": "ZenMux",
+      "groupHint": "API key",
+      "optionKey": "zenmuxApiKey",
+      "cliFlag": "--zenmux-api-key",
+      "cliOption": "--zenmux-api-key <key>",
+      "cliDescription": "ZenMux API key"
+    }
+  ],
+  "uiHints": {
+    "apiKey": {
+      "label": "ZenMux API key",
+      "placeholder": "zm-...",
+      "sensitive": true
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
