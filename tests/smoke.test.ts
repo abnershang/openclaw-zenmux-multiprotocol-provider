@@ -8,7 +8,7 @@ import {
   ZENMUX_OPENAI_BASE_URL,
   ZENMUX_VERTEX_BASE_URL,
 } from "../src/constants.js";
-import { buildZenmuxGeminiUrl } from "../src/transport-zenmux-gemini.js";
+import { buildZenmuxGeminiUrl, _parseZenmuxGeminiSseForTesting } from "../src/transport-zenmux-gemini.js";
 import { staticZenmuxModelDefinitions } from "../src/zenmux-models.js";
 import {
   _resetCacheForTesting,
@@ -89,6 +89,55 @@ describe("transport-zenmux-gemini URL builder", () => {
       "https://zenmux.ai/api/vertex-ai/v1/publishers/google/models/gemini-3.1-flash-lite-preview:streamGenerateContent?alt=sse",
     );
     expect(url).not.toContain("google%2F");
+  });
+});
+
+describe("parseZenmuxGeminiSse", () => {
+  it("parses a well-formed SSE event in a single chunk", async () => {
+    const payload = { candidates: [{ content: { parts: [{ text: "hi" }] } }] };
+    const chunks = [`data: ${JSON.stringify(payload)}\n\n`];
+    const results = await _parseZenmuxGeminiSseForTesting(chunks);
+    expect(results).toHaveLength(1);
+    expect(results[0]).toEqual(payload);
+  });
+
+  it("regression bug 1: parses event split across read cycles (data: line and blank line in separate chunks)", async () => {
+    // Before fix: pendingData was reset each while iteration, so the blank-line
+    // terminator arriving in a separate read() cycle silently dropped the event.
+    const payload = { candidates: [{ content: { parts: [{ text: "split" }] } }] };
+    const chunks = [
+      `data: ${JSON.stringify(payload)}\n`,  // data line, no terminator yet
+      `\n`,                                   // blank-line terminator in next read cycle
+    ];
+    const results = await _parseZenmuxGeminiSseForTesting(chunks);
+    expect(results).toHaveLength(1);
+    expect(results[0]).toEqual(payload);
+  });
+
+  it("regression bug 2: parses final SSE frame with no trailing blank line (tail flush)", async () => {
+    // Before fix: the last frame's data was left in buffer/pendingData and
+    // never flushed after done=true, so usage metadata chunks were dropped.
+    const payload = { usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5 } };
+    // No trailing \n\n — simulates a stream that ends mid-frame
+    const chunks = [`data: ${JSON.stringify(payload)}`];
+    const results = await _parseZenmuxGeminiSseForTesting(chunks);
+    expect(results).toHaveLength(1);
+    expect(results[0]).toEqual(payload);
+  });
+
+  it("handles [DONE] sentinel correctly", async () => {
+    const payload = { candidates: [{ content: { parts: [{ text: "ok" }] } }] };
+    const chunks = [`data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`];
+    const results = await _parseZenmuxGeminiSseForTesting(chunks);
+    expect(results).toHaveLength(1);
+  });
+
+  it("skips malformed JSON chunks without throwing", async () => {
+    const good = { candidates: [{ content: { parts: [{ text: "good" }] } }] };
+    const chunks = [`data: not-json\n\ndata: ${JSON.stringify(good)}\n\n`];
+    const results = await _parseZenmuxGeminiSseForTesting(chunks);
+    expect(results).toHaveLength(1);
+    expect(results[0]).toEqual(good);
   });
 });
 

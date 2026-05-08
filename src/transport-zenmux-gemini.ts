@@ -365,6 +365,14 @@ async function* parseZenmuxGeminiSse(
   let buffer = "";
   const abortHandler = () => void reader.cancel().catch(() => undefined);
   signal?.addEventListener("abort", abortHandler);
+  // Bug fixes (2026-05-08):
+  // 1. pendingData hoisted outside the while loop — if a `data:` line and its
+  //    blank-line terminator arrive in separate read() cycles the event was
+  //    silently dropped.
+  // 2. Buffer flushed after stream end — the final SSE frame's blank-line
+  //    terminator is consumed by lines.pop(); without an explicit flush the
+  //    tail chunk (often usage metadata or [DONE]) was discarded.
+  let pendingData = "";
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -372,7 +380,6 @@ async function* parseZenmuxGeminiSse(
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
-      let pendingData = "";
       for (const line of lines) {
         if (line.startsWith("data: ")) {
           pendingData = line.slice(6).trim();
@@ -385,6 +392,22 @@ async function* parseZenmuxGeminiSse(
           }
           pendingData = "";
         }
+      }
+    }
+    // Flush any trailing data left after stream end. Two cases:
+    // a) buffer holds a `data: {...}` line whose blank-line terminator never arrived
+    // b) pendingData was set but the blank-line terminator came in a separate
+    //    chunk that turned out to be the final read (loop broke before processing it)
+    const bufferTail = buffer.trim();
+    const rawTail = bufferTail.startsWith("data: ")
+      ? bufferTail.slice(6).trim()
+      : bufferTail;
+    const tail = rawTail || pendingData;
+    if (tail && tail !== "[DONE]") {
+      try {
+        yield JSON.parse(tail) as GoogleSseChunk;
+      } catch {
+        // malformed tail — skip
       }
     }
   } finally {
@@ -445,8 +468,14 @@ export function createZenmuxGeminiTransportStreamFn(): unknown {
           throw await createProviderHttpError(response, "Zenmux Gemini API error");
         }
 
-        stream.push({ type: "start", partial: output as never });
-
+        // Bug fix (2026-05-08): delay stream.push({ type: "start" }) until the
+        // first SSE chunk arrives. Pushing "start" immediately on HTTP 200
+        // signals stream liveness before any body data flows — if Zenmux stalls
+        // after sending headers the stream appears healthy to OpenClaw and the
+        // fallback never triggers; the only exit is a full timeout (the #79333
+        // symptom). Deferring to first-chunk gives OpenClaw a chance to detect
+        // the no-data stall via its own signal/timeout path.
+        let streamStarted = false;
         let currentBlockIndex = -1;
 
         const pushBlockEnd = (idx: number) => {
@@ -460,6 +489,10 @@ export function createZenmuxGeminiTransportStreamFn(): unknown {
         };
 
         for await (const chunk of parseZenmuxGeminiSse(response, options?.signal)) {
+          if (!streamStarted) {
+            stream.push({ type: "start", partial: output as never });
+            streamStarted = true;
+          }
           output.responseId ||= chunk.responseId;
 
           const meta = chunk.usageMetadata;
@@ -604,4 +637,31 @@ export function createZenmuxGeminiTransportStreamFn(): unknown {
 
     return eventStream as unknown;
   };
+}
+
+// ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
+
+/** @internal Exported for unit tests only. */
+export async function _parseZenmuxGeminiSseForTesting(
+  chunks: string[],
+): Promise<GoogleSseChunk[]> {
+  const encoder = new TextEncoder();
+  let offset = 0;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (offset < chunks.length) {
+        controller.enqueue(encoder.encode(chunks[offset++]));
+      } else {
+        controller.close();
+      }
+    },
+  });
+  const response = new Response(stream);
+  const results: GoogleSseChunk[] = [];
+  for await (const chunk of parseZenmuxGeminiSse(response)) {
+    results.push(chunk);
+  }
+  return results;
 }
