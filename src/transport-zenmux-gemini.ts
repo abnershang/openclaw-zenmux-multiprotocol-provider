@@ -17,18 +17,12 @@
  * (extensions/google/transport-stream.ts).
  */
 
-// We intentionally do NOT import StreamFn from @mariozechner/pi-agent-core here.
-// The plugin resolves that package through the openclaw devdep path; importing it
-// directly causes a duplicate-module type mismatch with the openclaw SDK types.
-// Instead we type createStreamFn's return as `unknown` at the call-site cast.
-
-import {
-  calculateCost,
-  getEnvApiKey,
-  type Context,
-  type Model,
-  type SimpleStreamOptions,
-} from "@mariozechner/pi-ai";
+// @mariozechner/pi-ai is OpenClaw's internal core package and is NOT part of
+// the public plugin SDK surface. External plugins must not import from it —
+// the package is not in the plugin's own node_modules and cannot be resolved
+// from a sibling directory at runtime. All types and helpers are replaced with
+// self-contained equivalents below so this transport depends only on
+// openclaw/plugin-sdk/* subpaths.
 import { createProviderHttpError } from "openclaw/plugin-sdk/provider-http";
 import {
   buildGuardedModelFetch,
@@ -43,6 +37,57 @@ import {
 } from "openclaw/plugin-sdk/provider-transport-runtime";
 
 // ---------------------------------------------------------------------------
+// Self-contained helpers (replacing @mariozechner/pi-ai imports)
+// ---------------------------------------------------------------------------
+
+/** Minimal model shape used by this transport. Typed to match pi-ai's Model<string>. */
+type ZenmuxGeminiModel = {
+  id: string;
+  provider: string;
+  api: string;
+  input: string[];
+  cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  [key: string]: unknown;
+};
+
+/** Minimal message content block shapes used in context messages. */
+type ZenmuxMsgBlock = { type: string; [key: string]: unknown };
+
+/** Minimal context shape used by this transport. Typed to match pi-ai's Context. */
+type ZenmuxGeminiContext = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  messages: Array<any>;
+  systemPrompt?: string;
+  tools?: Array<{ name: string; description: string; parameters: unknown }>;
+};
+
+/** Usage cost structure returned by createEmptyTransportUsage. */
+type ZenmuxUsageCost = {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  total: number;
+};
+
+/**
+ * Inline equivalent of pi-ai's calculateCost.
+ * Mutates usage.cost in place (same contract as the original).
+ */
+function calculateCostInline(
+  model: ZenmuxGeminiModel,
+  usage: { input: number; output: number; cacheRead: number; cacheWrite: number; cost: ZenmuxUsageCost },
+): ZenmuxUsageCost {
+  usage.cost.input = (model.cost.input / 1_000_000) * usage.input;
+  usage.cost.output = (model.cost.output / 1_000_000) * usage.output;
+  usage.cost.cacheRead = (model.cost.cacheRead / 1_000_000) * usage.cacheRead;
+  usage.cost.cacheWrite = 0;
+  usage.cost.total =
+    usage.cost.input + usage.cost.output + usage.cost.cacheRead + usage.cost.cacheWrite;
+  return usage.cost;
+}
+
+// ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
@@ -52,19 +97,28 @@ export const ZENMUX_GEMINI_BASE_URL = "https://zenmux.ai/api/vertex-ai/v1";
 // Types
 // ---------------------------------------------------------------------------
 
-type GoogleTransportOptions = SimpleStreamOptions & {
+// Minimal stand-in for the pi-ai SimpleStreamOptions fields this transport uses.
+// Typed as an interface so the intersection below stays clean.
+interface ZenmuxGeminiStreamOptions {
+  apiKey?: string;
+  signal?: AbortSignal;
+  temperature?: number;
+  maxTokens?: number;
+  reasoning?: { enabled?: boolean; budgetTokens?: number; level?: string };
+  thinking?: { enabled?: boolean; budgetTokens?: number; level?: string };
+  onPayload?: unknown;
+  headers?: Record<string, string>;
+  cachedContent?: string;
+}
+
+type GoogleTransportOptions = ZenmuxGeminiStreamOptions & {
   apiKey?: string;
   cachedContent?: string;
   headers?: Record<string, string>;
   onPayload?: (
     params: GoogleGenerateContentRequest,
-    model: Model<string>,
+    model: ZenmuxGeminiModel,
   ) => Promise<unknown> | unknown;
-  thinking?: {
-    enabled?: boolean;
-    budgetTokens?: number;
-    level?: string;
-  };
 };
 
 type GoogleGenerateContentRequest = {
@@ -185,8 +239,8 @@ function buildZenmuxGeminiHeaders(
 // ---------------------------------------------------------------------------
 
 function buildZenmuxGeminiPayload(
-  model: Model<string>,
-  context: Context,
+  model: ZenmuxGeminiModel,
+  context: ZenmuxGeminiContext,
   options: GoogleTransportOptions | undefined,
 ): GoogleGenerateContentRequest {
   const generationConfig: Record<string, unknown> = {};
@@ -283,14 +337,12 @@ function buildZenmuxGeminiPayload(
     }
 
     if (msg.role === "toolResult") {
-      const trMsg = msg as {
-        toolName: string;
-        isError?: boolean;
-        content: Array<{ type: string; text?: string }>;
-      };
+      const trMsg = msg as typeof msg & { toolName: string };
       const textResult = trMsg.content
-        .filter((item) => item.type === "text")
-        .map((item) => item.text ?? "")
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .filter((item: any) => item.type === "text")
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map((item: any) => item.text ?? "")
         .join("\n");
       const functionResponse = {
         functionResponse: {
@@ -335,7 +387,7 @@ function buildZenmuxGeminiPayload(
   if (context.tools?.length) {
     params.tools = [
       {
-        functionDeclarations: context.tools.map((tool) => ({
+        functionDeclarations: context.tools.map((tool: { name: string; description: string; parameters: unknown }) => ({
           name: tool.name,
           description: tool.description,
           parametersJsonSchema: tool.parameters,
@@ -424,8 +476,8 @@ async function* parseZenmuxGeminiSse(
 // The call site in index.ts casts this to StreamFn via `as never`.
 export function createZenmuxGeminiTransportStreamFn(): unknown {
   return (rawModel: unknown, context: unknown, rawOptions: unknown) => {
-    const model = rawModel as Model<string>;
-    const ctx = context as Context;
+    const model = rawModel as ZenmuxGeminiModel;
+    const ctx = context as ZenmuxGeminiContext;
     const options = rawOptions as GoogleTransportOptions | undefined;
     const { eventStream, stream } = createWritableTransportEventStream();
 
@@ -443,11 +495,13 @@ export function createZenmuxGeminiTransportStreamFn(): unknown {
       try {
         const apiKey =
           options?.apiKey ??
-          getEnvApiKey(model.provider) ??
+          // No pi-ai getEnvApiKey — use the plugin-specific env var directly.
+          // Zenmux uses a single key for all providers.
           process.env["ZENMUX_API_KEY"] ??
           undefined;
 
-        const guardedFetch = buildGuardedModelFetch(model);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const guardedFetch = buildGuardedModelFetch(model as any);
         let params = buildZenmuxGeminiPayload(model, ctx, options);
         const nextParams = await options?.onPayload?.(params, model);
         if (nextParams !== undefined) {
@@ -507,7 +561,8 @@ export function createZenmuxGeminiTransportStreamFn(): unknown {
             output.usage.cacheRead = cacheRead;
             output.usage.totalTokens =
               meta.totalTokenCount ?? inputTokens + outputTokens;
-            output.usage.cost = calculateCost(model, output.usage);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            output.usage.cost = calculateCostInline(model, output.usage as any);
           }
 
           const candidate = chunk.candidates?.[0];
