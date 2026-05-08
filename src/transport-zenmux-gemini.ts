@@ -154,7 +154,13 @@ function mapStopReason(reason: string): "stop" | "length" | "error" {
 }
 
 export function buildZenmuxGeminiUrl(modelId: string): string {
-  const encoded = encodeURIComponent(modelId);
+  // Zenmux's bare-vertex endpoint already pins publisher=google, so the
+  // model segment must be the bare id (e.g. "gemini-3.1-flash-lite-preview").
+  // OpenClaw model refs arrive as "google/<id>" — strip the publisher prefix
+  // before URL-encoding. Live-probe evidence 2026-05-08: the prefixed form
+  // returns 404 invalid_model; the stripped form returns 200.
+  const bare = modelId.startsWith("google/") ? modelId.slice("google/".length) : modelId;
+  const encoded = encodeURIComponent(bare);
   return `${ZENMUX_GEMINI_BASE_URL}/publishers/google/models/${encoded}:streamGenerateContent?alt=sse`;
 }
 

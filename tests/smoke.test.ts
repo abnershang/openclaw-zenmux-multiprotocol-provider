@@ -79,6 +79,17 @@ describe("transport-zenmux-gemini URL builder", () => {
     expect(url).toContain("/api/vertex-ai/v1/");
     expect(url).not.toContain("v1beta");
   });
+
+  it("strips google/ publisher prefix before encoding (regression: zenmux 404 invalid_model)", () => {
+    // OpenClaw model refs arrive as "google/<id>". Zenmux's bare-vertex
+    // endpoint pins publisher=google and requires the bare id in the path
+    // segment; the prefixed form returns 404 invalid_model.
+    const url = buildZenmuxGeminiUrl("google/gemini-3.1-flash-lite-preview");
+    expect(url).toBe(
+      "https://zenmux.ai/api/vertex-ai/v1/publishers/google/models/gemini-3.1-flash-lite-preview:streamGenerateContent?alt=sse",
+    );
+    expect(url).not.toContain("google%2F");
+  });
 });
 
 describe("zenmux-capabilities-cache", () => {
