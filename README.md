@@ -58,4 +58,4 @@ Model capabilities (context window, modalities, pricing, reasoning flag) are res
 
 ## Fork provenance
 
-Forked from [`zenmux/openclaw-zenmux-provider`](https://github.com/zenmux/openclaw-zenmux-provider) **v0.2.0** by Vulcan. Licensed under MIT (see `LICENSE`). See `FORK-NOTES.md` for the detailed change log vs. upstream.
+Forked from [`zenmux/openclaw-zenmux-provider`](https://github.com/zenmux/openclaw-zenmux-provider) **v0.2.0** by abnershang. Licensed under MIT (see `LICENSE`). See `FORK-NOTES.md` for the detailed change log vs. upstream.

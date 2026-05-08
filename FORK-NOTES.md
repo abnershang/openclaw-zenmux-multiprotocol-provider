@@ -1,10 +1,10 @@
 # Fork Notes — openclaw-zenmux-multiprotocol-provider
 
 **Forked from:** zenmux/openclaw-zenmux-provider v0.2.0  
-**Fork author:** Vulcan  
-**Fork version:** 0.6.0-vulcan.1
+**Fork author:** abnershang  
+**Fork version:** 0.6.0
 
-## v0.6.0-vulcan.1 — Native Zenmux Gemini transport
+## v0.6.0 — Native Zenmux Gemini transport
 
 ### What changed
 
@@ -53,7 +53,7 @@ We set `api: "google-generative-ai"` on Zenmux Gemini models so OpenClaw applies
 
 The upstream plugin registered a single `zenmux` provider using the OpenAI-compatible transport. This fork adds native Anthropic Messages and Vertex AI transports so model-specific protocol requirements are honoured end-to-end (e.g. Anthropic-native features like extended thinking, cache control headers).
 
-## v0.5.0-vulcan.1 — Smart transport dispatch on the `zenmux` alias (replaces v0.4.0 approach)
+## v0.5.0 — Smart transport dispatch on the `zenmux` alias (replaces v0.4.0 approach)
 
 ### What changed
 
@@ -83,7 +83,7 @@ v0.5.0 achieves the same user-visible outcome ("write `zenmux/anthropic/claude-*
 
 **`src/index.ts`** — the `zenmux` alias provider's `resolveDynamicModel` now branches on `ctx.modelId.startsWith("anthropic/claude-")` and returns an `anthropic-messages` model for that case; otherwise returns the `openai-completions` model.
 
-**`package.json`** — version bumped to `0.5.0-vulcan.1`.
+**`package.json`** — version bumped to `0.5.0`.
 
 ### Limitations
 
@@ -92,7 +92,7 @@ v0.5.0 achieves the same user-visible outcome ("write `zenmux/anthropic/claude-*
 
 ---
 
-## v0.4.0-vulcan.1 — Anthropic ref auto-rewriter (SUPERSEDED; see v0.5.0 above)
+## v0.4.0 — Anthropic ref auto-rewriter (SUPERSEDED; see v0.5.0 above)
 
 ### New files
 
@@ -107,7 +107,7 @@ v0.5.0 achieves the same user-visible outcome ("write `zenmux/anthropic/claude-*
 - Hook calls `rewriteZenmuxAnthropicRefs(ctx.config)` so existing configs using `zenmux/anthropic/claude-*` refs transparently get native Anthropic transport without any user migration
 
 **`package.json`**
-- `version`: `0.4.0-vulcan.1`
+- `version`: `0.4.0`
 
 ### Behaviour
 
@@ -115,7 +115,7 @@ When a user has a config containing `zenmux/anthropic/claude-*` model refs (e.g.
 
 - **Narrow**: only `^zenmux/anthropic/claude-` prefixes are touched; OpenAI and Vertex refs are unaffected
 - **Idempotent**: already-migrated `zenmux-anthropic/` refs pass through unchanged
-- **Non-persisting**: the rewrite is in-memory only; `~/.openclaw/openclaw.json` is never modified
+- **Non-persisting**: the rewrite is in-memory only; the plugin host config file is never modified
 - **Covers 11 config paths**: `agents.defaults` model fields (model, heartbeat.model, subagents.model, compaction.model, compaction.memoryFlush.model, models map keys), same for each `agents.list[i]`, `channels.modelByChannel` values, `hooks.mappings[].model`, `hooks.gmail.model`, `tools.subagents.model`
 
 ## Changes from upstream v0.2.0
@@ -156,9 +156,9 @@ When a user has a config containing `zenmux/anthropic/claude-*` model refs (e.g.
 
 **`package.json`**
 - `name`: `openclaw-zenmux-multiprotocol-provider`
-- `version`: `0.3.0-vulcan.1`
+- `version`: `0.3.0`
 - `openclaw.providers`: all four IDs
-- `devDependencies.openclaw`: `file:../../openclaw/openclaw` (local workspace ref; upstream used npm registry)
+- `devDependencies.openclaw`: local OpenClaw SDK checkout (see README development section)
 
 ### Structural changes
 

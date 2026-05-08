@@ -23,13 +23,13 @@ OpenClaw plugin that registers four ZenMux provider IDs sharing one `ZENMUX_API_
 - `npm test` — vitest smoke tests
 
 ## SDK import contract
-Only import from `openclaw/plugin-sdk/*` paths. Do NOT import from internal `src/**` paths. Reference: `~/.openclaw/extensions/zenmux/node_modules/openclaw/`.
+Only import from `openclaw/plugin-sdk/*` paths. Do NOT import from internal `src/**` paths.
 
 ## Smart dispatch
 The `zenmux` provider's `resolveDynamicModel` branches on `modelId.startsWith("anthropic/claude-")` and returns an `anthropic-messages` model with `ZENMUX_ANTHROPIC_BASE_URL` for those. All other model ids return `openai-completions` with `ZENMUX_OPENAI_BASE_URL`. This means users can keep writing `zenmux/anthropic/claude-*` refs in config and get native Anthropic caching automatically.
 
 ## Conventions
-- Version: semver, format `X.Y.Z-vulcan.N`
-- Commit style: conventional commits, `Built-by: Vulcan 🔨`
-- Do not modify `~/.openclaw/openclaw.json` from this project
+- Version: semver
+- Commit style: conventional commits
+- Do not modify the plugin host config file from this project
 - Do not publish to npm

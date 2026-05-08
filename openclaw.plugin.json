@@ -1,39 +1,73 @@
 {
   "id": "zenmux-multiprotocol",
   "name": "ZenMux Multi-Protocol Provider",
-  "description": "ZenMux LLM provider — native OpenAI, Anthropic, and Vertex transports over one API key",
-  "version": "0.3.0-vulcan.1",
-  "providers": ["zenmux", "zenmux-openai", "zenmux-anthropic", "zenmux-vertex"],
+  "description": "ZenMux LLM provider \u2014 native OpenAI, Anthropic, and Vertex transports over one API key",
+  "version": "0.6.0",
+  "providers": [
+    "zenmux",
+    "zenmux-openai",
+    "zenmux-anthropic",
+    "zenmux-vertex"
+  ],
   "modelSupport": {
-    "modelPrefixes": ["zenmux/", "zenmux-openai/", "zenmux-anthropic/", "zenmux-vertex/"]
+    "modelPrefixes": [
+      "zenmux/",
+      "zenmux-openai/",
+      "zenmux-anthropic/",
+      "zenmux-vertex/"
+    ]
   },
   "providerAuthEnvVars": {
-    "zenmux": ["ZENMUX_API_KEY"],
-    "zenmux-openai": ["ZENMUX_API_KEY"],
-    "zenmux-anthropic": ["ZENMUX_API_KEY"],
-    "zenmux-vertex": ["ZENMUX_API_KEY"]
+    "zenmux": [
+      "ZENMUX_API_KEY"
+    ],
+    "zenmux-openai": [
+      "ZENMUX_API_KEY"
+    ],
+    "zenmux-anthropic": [
+      "ZENMUX_API_KEY"
+    ],
+    "zenmux-vertex": [
+      "ZENMUX_API_KEY"
+    ]
   },
   "setup": {
     "providers": [
       {
         "id": "zenmux",
-        "authMethods": ["api-key"],
-        "envVars": ["ZENMUX_API_KEY"]
+        "authMethods": [
+          "api-key"
+        ],
+        "envVars": [
+          "ZENMUX_API_KEY"
+        ]
       },
       {
         "id": "zenmux-openai",
-        "authMethods": ["api-key"],
-        "envVars": ["ZENMUX_API_KEY"]
+        "authMethods": [
+          "api-key"
+        ],
+        "envVars": [
+          "ZENMUX_API_KEY"
+        ]
       },
       {
         "id": "zenmux-anthropic",
-        "authMethods": ["api-key"],
-        "envVars": ["ZENMUX_API_KEY"]
+        "authMethods": [
+          "api-key"
+        ],
+        "envVars": [
+          "ZENMUX_API_KEY"
+        ]
       },
       {
         "id": "zenmux-vertex",
-        "authMethods": ["api-key"],
-        "envVars": ["ZENMUX_API_KEY"]
+        "authMethods": [
+          "api-key"
+        ],
+        "envVars": [
+          "ZENMUX_API_KEY"
+        ]
       }
     ]
   },
