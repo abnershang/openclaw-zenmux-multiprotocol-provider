@@ -4,9 +4,11 @@ import {
   ZENMUX_ANTHROPIC_BASE_URL,
   ZENMUX_DEFAULT_CONTEXT_WINDOW,
   ZENMUX_DEFAULT_MAX_TOKENS,
+  ZENMUX_GEMINI_BASE_URL,
   ZENMUX_OPENAI_BASE_URL,
   ZENMUX_VERTEX_BASE_URL,
 } from "../src/constants.js";
+import { buildZenmuxGeminiUrl } from "../src/transport-zenmux-gemini.js";
 import { staticZenmuxModelDefinitions } from "../src/zenmux-models.js";
 import {
   _resetCacheForTesting,
@@ -18,6 +20,7 @@ describe("constants", () => {
     expect(ZENMUX_OPENAI_BASE_URL).toBe("https://zenmux.ai/api/v1");
     expect(ZENMUX_ANTHROPIC_BASE_URL).toBe("https://zenmux.ai/api/anthropic/v1");
     expect(ZENMUX_VERTEX_BASE_URL).toBe("https://zenmux.ai/api/vertex-ai/v1beta");
+    expect(ZENMUX_GEMINI_BASE_URL).toBe("https://zenmux.ai/api/vertex-ai/v1");
   });
 
   it("exports correct defaults", () => {
@@ -49,6 +52,32 @@ describe("staticZenmuxModelDefinitions", () => {
       expect(def.maxTokens).toBeGreaterThan(0);
       expect(def.cost).toBeDefined();
     }
+  });
+});
+
+describe("transport-zenmux-gemini URL builder", () => {
+  it("builds bare-vertex URL shape for a Gemini model (no project/location segments)", () => {
+    const url = buildZenmuxGeminiUrl("gemini-3.1-pro-preview");
+    expect(url).toBe(
+      "https://zenmux.ai/api/vertex-ai/v1/publishers/google/models/gemini-3.1-pro-preview:streamGenerateContent?alt=sse",
+    );
+    // Must NOT contain GCP project/location path segments
+    expect(url).not.toContain("/projects/");
+    expect(url).not.toContain("/locations/");
+    // Must use the bare-vertex segment
+    expect(url).toContain("/publishers/google/models/");
+  });
+
+  it("percent-encodes model IDs with special characters", () => {
+    const url = buildZenmuxGeminiUrl("gemini-3.1-flash-lite-preview");
+    expect(url).toContain("gemini-3.1-flash-lite-preview");
+    expect(url).toContain(":streamGenerateContent");
+  });
+
+  it("uses v1 API version (not v1beta)", () => {
+    const url = buildZenmuxGeminiUrl("gemini-3-flash-preview");
+    expect(url).toContain("/api/vertex-ai/v1/");
+    expect(url).not.toContain("v1beta");
   });
 });
 

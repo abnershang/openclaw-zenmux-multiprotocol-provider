@@ -2,7 +2,52 @@
 
 **Forked from:** zenmux/openclaw-zenmux-provider v0.2.0  
 **Fork author:** Vulcan  
-**Fork version:** 0.5.0-vulcan.1
+**Fork version:** 0.6.0-vulcan.1
+
+## v0.6.0-vulcan.1 — Native Zenmux Gemini transport
+
+### What changed
+
+Added a custom Gemini transport (`src/transport-zenmux-gemini.ts`) that calls Zenmux's Vertex-schema endpoint instead of the AI Studio or full GCP Vertex shapes — neither of which Zenmux supports.
+
+**Live probe evidence (2026-05-08):**
+
+| URL shape | Zenmux result |
+|---|---|
+| `v1/publishers/google/models/{id}:generateContent` | ✅ 200 OK — returns `thoughtSignature` in parts |
+| `v1beta/models/{id}:generateContent` (AI Studio) | ❌ 404 |
+| `v1/projects/{p}/locations/{l}/publishers/google/models/{id}` (GCP Vertex full) | ❌ 404 |
+
+The `thoughtSignature` field — which carries Gemini 3 native thinking content — is only emitted via the Vertex schema endpoint. The OpenAI-compat path drops it entirely.
+
+### Transport details
+
+- URL: `https://zenmux.ai/api/vertex-ai/v1/publishers/google/models/{id}:streamGenerateContent?alt=sse`
+- Auth: `Authorization: Bearer <ZENMUX_API_KEY>` (not `x-goog-api-key`)
+- Body/SSE: standard Gemini `generateContent` JSON + SSE chunks
+- Thinking config: `adaptive` → omits `thinkingLevel` so Google decides dynamically
+
+### New files
+
+| File | Purpose |
+|------|--------|
+| `src/transport-zenmux-gemini.ts` | Custom StreamFn for Zenmux bare-vertex URL; SSE parser; payload builder |
+| `src/provider-catalog-gemini.ts` | Provider catalog using `api: "google-generative-ai"` + Gemini base URL |
+
+### Modified files
+
+**`src/constants.ts`** — added `ZENMUX_GEMINI_BASE_URL = "https://zenmux.ai/api/vertex-ai/v1"`
+
+**`src/index.ts`**
+- Imports `createZenmuxGeminiTransportStreamFn` and registers a singleton `zenmuxGeminiStreamFn`
+- `zenmux-vertex` provider: now uses `buildZenmuxGeminiProvider()` (api: `google-generative-ai`) and registers `createStreamFn: () => zenmuxGeminiStreamFn`
+- `zenmux` smart-dispatch: routes `google/gemini-*`, `google/gemma-*`, `google/veo-*`, `google/lyria-*`, `google/imagen-*` through `google-generative-ai` + `createStreamFn` override; unchanged for `anthropic/claude-*` (Anthropic native) and everything else (OpenAI-compat)
+
+**`tests/smoke.test.ts`** — added URL shape assertions for `buildZenmuxGeminiUrl`: bare-vertex format, no project/location, v1 not v1beta.
+
+### Design decision: `createStreamFn` vs `api: "google-generative-ai"` base URL
+
+We set `api: "google-generative-ai"` on Zenmux Gemini models so OpenClaw applies correct thinking-level handling (adaptive reasoning, `thinkingConfig` generation). The actual HTTP call is then intercepted via `createStreamFn` to use the Zenmux URL shape. This is intentional — the `api` field controls payload/thinking semantics, `createStreamFn` controls transport.
 
 ## Why this fork exists
 

@@ -4,6 +4,8 @@ import { applyZenmuxConfig } from "./onboard.js";
 import { buildZenmuxOpenaiProvider } from "./provider-catalog-openai.js";
 import { buildZenmuxAnthropicProvider } from "./provider-catalog-anthropic.js";
 import { buildZenmuxVertexProvider } from "./provider-catalog-vertex.js";
+import { buildZenmuxGeminiProvider } from "./provider-catalog-gemini.js";
+import { createZenmuxGeminiTransportStreamFn, ZENMUX_GEMINI_BASE_URL } from "./transport-zenmux-gemini.js";
 import {
   getZenmuxModelCapabilities,
   loadZenmuxModelCapabilities,
@@ -18,7 +20,7 @@ import {
 
 const ALL_PROVIDER_IDS = ["zenmux", "zenmux-openai", "zenmux-anthropic", "zenmux-vertex"] as const;
 
-type ModelApi = "openai-completions" | "anthropic-messages";
+type ModelApi = "openai-completions" | "anthropic-messages" | "google-generative-ai"; // eslint-disable-line @typescript-eslint/no-unused-vars
 
 function buildDynamicModel(
   ctx: { modelId: string },
@@ -61,6 +63,21 @@ function makeAuth(providerId: string) {
       groupHint: "API key",
     },
   });
+}
+
+/** Singleton StreamFn for the Zenmux Gemini native transport. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const zenmuxGeminiStreamFn = createZenmuxGeminiTransportStreamFn() as any;
+
+/** Returns true when a model id looks like a Gemini/Google model via Zenmux. */
+function isZenmuxGeminiModelId(modelId: string): boolean {
+  return (
+    modelId.startsWith("google/gemini-") ||
+    modelId.startsWith("google/gemma-") ||
+    modelId.startsWith("google/veo-") ||
+    modelId.startsWith("google/lyria-") ||
+    modelId.startsWith("google/imagen-")
+  );
 }
 
 export default definePluginEntry({
@@ -124,9 +141,12 @@ export default definePluginEntry({
       },
     });
 
+    // zenmux-vertex: now uses the native Gemini transport + google-generative-ai api.
+    // The static catalog is kept for model discovery; the createStreamFn override
+    // routes all zenmux-vertex calls through the Zenmux bare-vertex URL shape.
     api.registerProvider({
       id: "zenmux-vertex",
-      label: "ZenMux (Vertex AI)",
+      label: "ZenMux (Vertex AI / Gemini)",
       docsPath: "/providers/zenmux",
       envVars: ["ZENMUX_API_KEY"],
       auth: [makeAuth("zenmux-vertex")],
@@ -135,30 +155,29 @@ export default definePluginEntry({
         run: async (ctx) => {
           const apiKey = ctx.resolveProviderApiKey("zenmux-vertex").apiKey;
           if (!apiKey) return null;
-          return { provider: { ...buildZenmuxVertexProvider(), apiKey } };
+          return { provider: { ...buildZenmuxGeminiProvider(), apiKey } };
         },
       },
       staticCatalog: {
         order: "simple",
-        run: async () => ({ provider: buildZenmuxVertexProvider() }),
+        run: async () => ({ provider: buildZenmuxGeminiProvider() }),
       },
       resolveDynamicModel: (ctx) =>
-        buildDynamicModel(ctx, "openai-completions", ZENMUX_VERTEX_BASE_URL, "zenmux-vertex"),
+        buildDynamicModel(ctx, "google-generative-ai", ZENMUX_GEMINI_BASE_URL, "zenmux-vertex"),
       prepareDynamicModel: async (ctx) => {
         await loadZenmuxModelCapabilities(ctx.modelId);
       },
+      createStreamFn: () => zenmuxGeminiStreamFn,
     });
 
     // Back-compat alias + smart-routing provider.
     //
     // Model refs written as `zenmux/<upstream-id>` resolve to the single
-    // `zenmux` provider below. To give users native Anthropic prompt caching
-    // without forcing them to migrate every ref to `zenmux-anthropic/...`,
-    // this provider's resolveDynamicModel dispatches the transport by model
-    // id: `anthropic/claude-*` routes over `anthropic-messages`, everything
-    // else stays on `openai-completions` (which the full ZenMux catalog
-    // supports). The static catalog is intentionally empty so dynamic
-    // resolution is the sole source of truth for transport selection.
+    // `zenmux` provider below. Transport dispatch by model id:
+    //   - `anthropic/claude-*`  → anthropic-messages (native Anthropic; prompt caching)
+    //   - `google/gemini-*` etc → google-generative-ai via Zenmux bare-vertex transport
+    //     (returns thoughtSignature; adaptive thinking; native Gemini protocol)
+    //   - everything else       → openai-completions (unchanged from v0.5.0)
     api.registerProvider({
       id: "zenmux",
       label: "ZenMux",
@@ -186,10 +205,24 @@ export default definePluginEntry({
             "zenmux",
           );
         }
+        if (isZenmuxGeminiModelId(ctx.modelId)) {
+          return buildDynamicModel(
+            ctx,
+            "google-generative-ai",
+            ZENMUX_GEMINI_BASE_URL,
+            "zenmux",
+          );
+        }
         return buildDynamicModel(ctx, "openai-completions", ZENMUX_OPENAI_BASE_URL, "zenmux");
       },
       prepareDynamicModel: async (ctx) => {
         await loadZenmuxModelCapabilities(ctx.modelId);
+      },
+      createStreamFn: (ctx) => {
+        if (ctx.model.api === "google-generative-ai") {
+          return zenmuxGeminiStreamFn;
+        }
+        return undefined; // let core handle anthropic-messages and openai-completions
       },
     });
   },
