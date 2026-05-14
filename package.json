@@ -1,6 +1,6 @@
 {
   "name": "openclaw-zenmux-multiprotocol-provider",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "ZenMux LLM provider plugin for OpenClaw \u2014 multi-protocol with native OpenAI, Anthropic, and Vertex transports",
   "license": "MIT",
   "author": "abnershang (fork of zenmux/openclaw-zenmux-provider v0.2.0)",

@@ -2,7 +2,18 @@
 
 **Forked from:** zenmux/openclaw-zenmux-provider v0.2.0  
 **Fork author:** abnershang  
-**Fork version:** 0.6.0
+**Fork version:** 0.7.0
+
+## v0.7.0 — Smart-dispatch-only public surface
+
+### What changed
+
+- Documented `zenmux/<upstream-model-id>` as the single public model-ref interface.
+- Kept `zenmux-openai`, `zenmux-anthropic`, and `zenmux-vertex` registered for protocol isolation and legacy compatibility, but removed them from setup/auth metadata.
+- Consolidated auth so only `zenmux` exposes the ZenMux API key prompt; protocol-specific registrations reuse that same key.
+- Added authenticated live catalog discovery from `https://zenmux.ai/api/v1/models`; the committed model list is now only an offline fallback.
+- Refreshed the fallback/default catalog to current ZenMux models and changed onboarding default to `zenmux/openai/gpt-5.5`.
+- Added ZenMux image generation support under the shared `zenmux` auth profile.
 
 ## v0.6.0 — Native Zenmux Gemini transport
 
