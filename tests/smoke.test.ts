@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { registerProviderPlugins, requireRegisteredProvider } from "openclaw/plugin-sdk/plugin-test-runtime";
 import {
   PROVIDER_IDS,
   ZENMUX_ANTHROPIC_BASE_URL,
@@ -8,6 +9,7 @@ import {
   ZENMUX_OPENAI_BASE_URL,
   ZENMUX_VERTEX_BASE_URL,
 } from "../src/constants.js";
+import zenmuxPlugin from "../src/index.js";
 import { buildZenmuxGeminiUrl, _parseZenmuxGeminiSseForTesting } from "../src/transport-zenmux-gemini.js";
 import { staticZenmuxModelDefinitions } from "../src/zenmux-models.js";
 import {
@@ -34,6 +36,17 @@ describe("constants", () => {
     expect(PROVIDER_IDS).toContain("zenmux-anthropic");
     expect(PROVIDER_IDS).toContain("zenmux-vertex");
     expect(PROVIDER_IDS).toHaveLength(4);
+  });
+});
+
+describe("provider registration", () => {
+  it("exposes one shared ZenMux auth method across all protocol providers", async () => {
+    const providers = await registerProviderPlugins(zenmuxPlugin);
+
+    expect(requireRegisteredProvider(providers, "zenmux").auth).toHaveLength(1);
+    expect(requireRegisteredProvider(providers, "zenmux-openai").auth).toHaveLength(0);
+    expect(requireRegisteredProvider(providers, "zenmux-anthropic").auth).toHaveLength(0);
+    expect(requireRegisteredProvider(providers, "zenmux-vertex").auth).toHaveLength(0);
   });
 });
 

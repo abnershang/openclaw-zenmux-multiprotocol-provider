@@ -1,16 +1,17 @@
 // Singleton in-memory + disk cache of ZenMux model capabilities.
 //
 // Mirrors the canonical openclaw bundled-provider pattern (see
-// extensions/openrouter): the catalog stays small and curated, and per-model
-// capabilities for any zenmux/<id> are resolved on demand via this cache,
-// with a single-flight network fetch against https://zenmux.ai/api/v1/models
-// and a disk-persisted snapshot that survives gateway restarts.
+// extensions/openrouter): per-model capabilities for any zenmux/<id> are
+// resolved on demand via this cache, while live catalog discovery reuses the
+// same single-flight network fetch against https://zenmux.ai/api/v1/models
+// and disk-persisted snapshot that survives gateway restarts.
 //
 // The cache is shared across all four registered provider ids (zenmux-openai,
 // zenmux-anthropic, zenmux-vertex, zenmux) because model IDs are upstream-
 // scoped, not provider-scoped.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { ModelDefinitionConfig } from "openclaw/plugin-sdk/provider-model-shared";
 import { resolveStateDir } from "openclaw/plugin-sdk/state-paths";
 import { fetchWithSsrFGuard } from "openclaw/plugin-sdk/ssrf-runtime";
 
@@ -24,7 +25,7 @@ const ZENMUX_DEFAULT_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
 export type ZenmuxModelCapabilities = {
   name: string;
   reasoning: boolean;
-  input: Array<"text" | "image">;
+  input: RuntimeModelInput;
   cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
   contextWindow: number;
   maxTokens: number;
@@ -49,10 +50,12 @@ type ZenmuxApiModel = {
 };
 
 type ZenmuxModelsApiResponse = { data?: ZenmuxApiModel[] };
+type RuntimeModelInput = Array<"text" | "image">;
 
 let cache: Map<string, ZenmuxModelCapabilities> | undefined;
 let fetchInFlight: Promise<void> | undefined;
 const skipNextMissRefresh = new Set<string>();
+const SUPPORTED_INPUT_MODALITIES: RuntimeModelInput = ["text", "image"];
 
 function resolveDiskCacheDir(): string {
   return join(resolveStateDir(), "cache");
@@ -123,17 +126,35 @@ function extractCost(p: ZenmuxApiModel["pricings"]): ZenmuxModelCapabilities["co
   };
 }
 
+function parseInputModalities(inputModalities: string[] | undefined): RuntimeModelInput {
+  const raw = inputModalities ?? ["text"];
+  const input = SUPPORTED_INPUT_MODALITIES.filter((modality) => raw.includes(modality));
+  return input.length > 0 ? input : ["text"];
+}
+
 function parseModel(model: ZenmuxApiModel): ZenmuxModelCapabilities {
-  const inputModalities = model.input_modalities ?? ["text"];
-  const hasImage = inputModalities.includes("image");
   return {
     name: model.display_name || model.id,
     reasoning: model.capabilities?.reasoning ?? false,
-    input: hasImage ? ["text", "image"] : ["text"],
+    input: parseInputModalities(model.input_modalities),
     cost: model.pricings ? extractCost(model.pricings) : { ...ZENMUX_DEFAULT_COST },
     contextWindow: model.context_length ?? ZENMUX_DEFAULT_CONTEXT_WINDOW,
     maxTokens: ZENMUX_DEFAULT_MAX_TOKENS,
   };
+}
+
+function toModelDefinitions(
+  map: Map<string, ZenmuxModelCapabilities>,
+): ModelDefinitionConfig[] {
+  return Array.from(map.entries()).map(([id, caps]) => ({
+    id,
+    name: caps.name,
+    reasoning: caps.reasoning,
+    input: [...caps.input],
+    cost: { ...caps.cost },
+    contextWindow: caps.contextWindow,
+    maxTokens: caps.maxTokens,
+  }));
 }
 
 async function doFetch(): Promise<void> {
@@ -167,6 +188,13 @@ function triggerFetch(): void {
   fetchInFlight = doFetch().finally(() => {
     fetchInFlight = undefined;
   });
+}
+
+export async function loadZenmuxModelDefinitions(): Promise<ModelDefinitionConfig[]> {
+  ensureZenmuxModelCache();
+  triggerFetch();
+  if (fetchInFlight) await fetchInFlight;
+  return cache ? toModelDefinitions(cache) : [];
 }
 
 function ensureZenmuxModelCache(): void {

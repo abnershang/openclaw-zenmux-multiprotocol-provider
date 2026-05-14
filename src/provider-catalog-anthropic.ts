@@ -1,11 +1,18 @@
-import type { ModelProviderConfig } from "openclaw/plugin-sdk/provider-model-shared";
+import type {
+  ModelDefinitionConfig,
+  ModelProviderConfig,
+} from "openclaw/plugin-sdk/provider-model-shared";
 import { ZENMUX_ANTHROPIC_BASE_URL } from "./constants.js";
-import { staticZenmuxModelDefinitions } from "./zenmux-models.js";
+import { isZenmuxAnthropicModelId, staticZenmuxModelDefinitions } from "./zenmux-models.js";
 
-export function buildZenmuxAnthropicProvider(): ModelProviderConfig {
+export function buildZenmuxAnthropicProvider(
+  models: ModelDefinitionConfig[] = staticZenmuxModelDefinitions((model) =>
+    isZenmuxAnthropicModelId(model.id),
+  ),
+): ModelProviderConfig {
   return {
     baseUrl: ZENMUX_ANTHROPIC_BASE_URL,
     api: "anthropic-messages",
-    models: staticZenmuxModelDefinitions(),
+    models: models.filter((model) => isZenmuxAnthropicModelId(model.id)),
   };
 }

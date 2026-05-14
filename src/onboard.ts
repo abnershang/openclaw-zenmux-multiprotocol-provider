@@ -9,7 +9,7 @@ import {
   ZENMUX_VERTEX_BASE_URL,
 } from "./constants.js";
 
-export const ZENMUX_DEFAULT_MODEL_REF = "zenmux/openai/gpt-5.4";
+export const ZENMUX_DEFAULT_MODEL_REF = "zenmux/openai/gpt-5.5";
 
 function applyOpenaiProviderConfig(cfg: OpenClawConfig): OpenClawConfig {
   return applyProviderConfigWithModelCatalog(cfg, {

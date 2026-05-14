@@ -1,6 +1,9 @@
-import type { ModelProviderConfig } from "openclaw/plugin-sdk/provider-model-shared";
+import type {
+  ModelDefinitionConfig,
+  ModelProviderConfig,
+} from "openclaw/plugin-sdk/provider-model-shared";
 import { ZENMUX_GEMINI_BASE_URL } from "./constants.js";
-import { staticZenmuxModelDefinitions } from "./zenmux-models.js";
+import { isZenmuxGeminiModelId, staticZenmuxModelDefinitions } from "./zenmux-models.js";
 
 /**
  * Zenmux Gemini provider catalog.
@@ -10,10 +13,14 @@ import { staticZenmuxModelDefinitions } from "./zenmux-models.js";
  * overridden via `createStreamFn` in index.ts to use the Zenmux bare-vertex
  * URL shape: /publishers/google/models/{id}:streamGenerateContent?alt=sse
  */
-export function buildZenmuxGeminiProvider(): ModelProviderConfig {
+export function buildZenmuxGeminiProvider(
+  models: ModelDefinitionConfig[] = staticZenmuxModelDefinitions((model) =>
+    isZenmuxGeminiModelId(model.id),
+  ),
+): ModelProviderConfig {
   return {
     baseUrl: ZENMUX_GEMINI_BASE_URL,
     api: "google-generative-ai",
-    models: staticZenmuxModelDefinitions(),
+    models: models.filter((model) => isZenmuxGeminiModelId(model.id)),
   };
 }

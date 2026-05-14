@@ -1,17 +1,16 @@
 # openclaw-zenmux-multiprotocol-provider
 
-> Multi-protocol ZenMux provider plugin for [OpenClaw](https://github.com/openclaw/openclaw) — four provider IDs, one API key, native OpenAI + Anthropic + Vertex transports.
+> Multi-protocol ZenMux provider plugin for [OpenClaw](https://github.com/openclaw/openclaw) — one smart-dispatch provider, one API key, native OpenAI + Anthropic + Vertex transports.
 
-Registers four ZenMux provider IDs that share a single `ZENMUX_API_KEY` and route over the correct native transport for the upstream model. Anthropic models get native prompt caching automatically; Google Gemini/Vertex models use the native Gemini transport with thoughtSignature retention and adaptive thinking; all other models use OpenAI-compatible chat completions.
+Use `zenmux/<upstream-model-id>` for model references. The smart-dispatch provider routes each upstream model family over the correct native transport. Anthropic models get native prompt caching automatically; Google Gemini/Vertex models use the native Gemini transport with thoughtSignature retention and adaptive thinking; all other models use OpenAI-compatible chat completions.
 
-## Providers
+## Provider
 
-| Provider ID        | API type              | Base URL                                  |
-|--------------------|-----------------------|-------------------------------------------|
-| `zenmux`           | Smart dispatch        | see **Smart dispatch** below              |
-| `zenmux-openai`    | `openai-completions`  | `https://zenmux.ai/api/v1`                |
-| `zenmux-anthropic` | `anthropic-messages`  | `https://zenmux.ai/api/anthropic/v1`      |
-| `zenmux-vertex`    | `google-generative-ai` | `https://zenmux.ai/api/vertex-ai/v1`     |
+| Provider ID | Behavior |
+|-------------|----------|
+| `zenmux`    | Smart dispatch by upstream model family |
+
+The explicit protocol provider IDs (`zenmux-openai`, `zenmux-anthropic`, `zenmux-vertex`) remain registered for transport isolation and legacy config compatibility, but they are not separate setup/auth choices.
 
 ## Smart dispatch
 
@@ -25,8 +24,6 @@ This means existing configs that reference `zenmux/anthropic/claude-sonnet-4.6` 
 
 **Native Gemini transport:** `zenmux-vertex` and Gemini models via `zenmux` use ZenMux's bare-vertex URL shape (`POST https://zenmux.ai/api/vertex-ai/v1/publishers/google/models/{model}:streamGenerateContent?alt=sse`) rather than the AI Studio or full GCP Vertex path. This preserves `thoughtSignature` across tool-use turns and correctly passes adaptive thinking config.
 
-If you want explicit control (e.g. to force OpenAI-compat transport for a Claude model, or to skip smart dispatch), use one of the explicit provider IDs (`zenmux-openai`, `zenmux-anthropic`, `zenmux-vertex`) directly.
-
 ## Install
 
 From a local checkout:
@@ -35,13 +32,13 @@ From a local checkout:
 openclaw plugins install --link /path/to/openclaw-zenmux-multiprotocol-provider
 ```
 
-Set your ZenMux API key once — it covers all four providers:
+Set your ZenMux API key once:
 
 ```bash
 export ZENMUX_API_KEY=zm-...
 ```
 
-Or configure via the OpenClaw onboarding flow when you first enable any of the providers.
+Or configure via the OpenClaw onboarding flow. Only the `zenmux` provider exposes the ZenMux auth prompt; protocol-specific registrations reuse that same key.
 
 ## Development
 
@@ -54,7 +51,9 @@ npm test            # vitest run
 
 ## Model discovery
 
-Model capabilities (context window, modalities, pricing, reasoning flag) are resolved on demand from `https://zenmux.ai/api/v1/models` and cached in-memory plus on disk at `<state-dir>/cache/zenmux-models.json`. The cache is shared across all four providers, so one fetch populates discovery for every transport.
+Authenticated catalog discovery and per-model capabilities (context window, modalities, pricing, reasoning flag) are resolved from `https://zenmux.ai/api/v1/models` and cached in-memory plus on disk at `<state-dir>/cache/zenmux-models.json`. The cache is shared across all four providers, so one fetch populates discovery for every transport.
+
+The committed model list in `src/zenmux-models.ts` is only an offline/static fallback for startup and unauthenticated catalog views. It is not the authoritative ZenMux catalog.
 
 ## Fork provenance
 

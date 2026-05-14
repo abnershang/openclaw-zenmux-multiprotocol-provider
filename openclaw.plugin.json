@@ -11,23 +11,11 @@
   ],
   "modelSupport": {
     "modelPrefixes": [
-      "zenmux/",
-      "zenmux-openai/",
-      "zenmux-anthropic/",
-      "zenmux-vertex/"
+      "zenmux/"
     ]
   },
   "providerAuthEnvVars": {
     "zenmux": [
-      "ZENMUX_API_KEY"
-    ],
-    "zenmux-openai": [
-      "ZENMUX_API_KEY"
-    ],
-    "zenmux-anthropic": [
-      "ZENMUX_API_KEY"
-    ],
-    "zenmux-vertex": [
       "ZENMUX_API_KEY"
     ]
   },
@@ -35,33 +23,6 @@
     "providers": [
       {
         "id": "zenmux",
-        "authMethods": [
-          "api-key"
-        ],
-        "envVars": [
-          "ZENMUX_API_KEY"
-        ]
-      },
-      {
-        "id": "zenmux-openai",
-        "authMethods": [
-          "api-key"
-        ],
-        "envVars": [
-          "ZENMUX_API_KEY"
-        ]
-      },
-      {
-        "id": "zenmux-anthropic",
-        "authMethods": [
-          "api-key"
-        ],
-        "envVars": [
-          "ZENMUX_API_KEY"
-        ]
-      },
-      {
-        "id": "zenmux-vertex",
         "authMethods": [
           "api-key"
         ],
@@ -97,5 +58,20 @@
     "type": "object",
     "additionalProperties": false,
     "properties": {}
+  },
+  "contracts": {
+    "imageGenerationProviders": [
+      "zenmux"
+    ]
+  },
+  "imageGenerationProviderMetadata": {
+    "zenmux": {
+      "aliases": [
+        "zenmux-openai"
+      ],
+      "authProviders": [
+        "zenmux"
+      ]
+    }
   }
 }

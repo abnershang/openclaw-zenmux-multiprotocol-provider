@@ -1,13 +1,17 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { createProviderApiKeyAuthMethod } from "openclaw/plugin-sdk/provider-auth";
+import type { ModelDefinitionConfig } from "openclaw/plugin-sdk/provider-model-shared";
 import { applyZenmuxConfig } from "./onboard.js";
 import { buildZenmuxOpenaiProvider } from "./provider-catalog-openai.js";
 import { buildZenmuxAnthropicProvider } from "./provider-catalog-anthropic.js";
 import { buildZenmuxVertexProvider } from "./provider-catalog-vertex.js";
 import { buildZenmuxGeminiProvider } from "./provider-catalog-gemini.js";
+import { buildZenmuxImageGenerationProvider } from "./image-generation-provider.js";
 import { createZenmuxGeminiTransportStreamFn, ZENMUX_GEMINI_BASE_URL } from "./transport-zenmux-gemini.js";
+import { isZenmuxAnthropicModelId, isZenmuxGeminiModelId } from "./zenmux-models.js";
 import {
   getZenmuxModelCapabilities,
+  loadZenmuxModelDefinitions,
   loadZenmuxModelCapabilities,
 } from "./zenmux-capabilities-cache.js";
 import {
@@ -18,7 +22,7 @@ import {
   ZENMUX_DEFAULT_MAX_TOKENS,
 } from "./constants.js";
 
-const ALL_PROVIDER_IDS = ["zenmux", "zenmux-openai", "zenmux-anthropic", "zenmux-vertex"] as const;
+const DEFAULT_INPUT: Array<"text" | "image"> = ["text"];
 
 type ModelApi = "openai-completions" | "anthropic-messages" | "google-generative-ai"; // eslint-disable-line @typescript-eslint/no-unused-vars
 
@@ -36,16 +40,16 @@ function buildDynamicModel(
     provider,
     baseUrl,
     reasoning: caps?.reasoning ?? false,
-    input: caps?.input ?? (["text"] as Array<"text" | "image">),
+    input: caps?.input ?? DEFAULT_INPUT,
     cost: caps?.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: caps?.contextWindow ?? ZENMUX_DEFAULT_CONTEXT_WINDOW,
     maxTokens: caps?.maxTokens ?? ZENMUX_DEFAULT_MAX_TOKENS,
   };
 }
 
-function makeAuth(providerId: string) {
+function makeAuth() {
   return createProviderApiKeyAuthMethod({
-    providerId,
+    providerId: "zenmux",
     methodId: "api-key",
     label: "ZenMux API key",
     hint: "API key",
@@ -53,7 +57,7 @@ function makeAuth(providerId: string) {
     flagName: "--zenmux-api-key",
     envVar: "ZENMUX_API_KEY",
     promptMessage: "Enter ZenMux API key",
-    expectedProviders: [...ALL_PROVIDER_IDS],
+    expectedProviders: ["zenmux"],
     applyConfig: (cfg) => applyZenmuxConfig(cfg),
     wizard: {
       choiceId: "zenmux-api-key",
@@ -69,15 +73,12 @@ function makeAuth(providerId: string) {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const zenmuxGeminiStreamFn = createZenmuxGeminiTransportStreamFn() as any;
 
-/** Returns true when a model id looks like a Gemini/Google model via Zenmux. */
-function isZenmuxGeminiModelId(modelId: string): boolean {
-  return (
-    modelId.startsWith("google/gemini-") ||
-    modelId.startsWith("google/gemma-") ||
-    modelId.startsWith("google/veo-") ||
-    modelId.startsWith("google/lyria-") ||
-    modelId.startsWith("google/imagen-")
-  );
+async function loadCatalogModels(
+  filter?: (model: ModelDefinitionConfig) => boolean,
+): Promise<ModelDefinitionConfig[] | undefined> {
+  const models = await loadZenmuxModelDefinitions();
+  const filtered = filter ? models.filter(filter) : models;
+  return filtered.length > 0 ? filtered : undefined;
 }
 
 export default definePluginEntry({
@@ -86,18 +87,23 @@ export default definePluginEntry({
   description:
     "ZenMux LLM provider plugin for OpenClaw — native OpenAI, Anthropic, and Vertex transports",
   register(api) {
+    api.registerImageGenerationProvider(buildZenmuxImageGenerationProvider());
+
     api.registerProvider({
       id: "zenmux-openai",
       label: "ZenMux (OpenAI)",
       docsPath: "/providers/zenmux",
       envVars: ["ZENMUX_API_KEY"],
-      auth: [makeAuth("zenmux-openai")],
+      auth: [],
       catalog: {
         order: "simple",
         run: async (ctx) => {
-          const apiKey = ctx.resolveProviderApiKey("zenmux-openai").apiKey;
+          const apiKey =
+            ctx.resolveProviderApiKey("zenmux").apiKey ??
+            ctx.resolveProviderApiKey("zenmux-openai").apiKey;
           if (!apiKey) return null;
-          return { provider: { ...buildZenmuxOpenaiProvider(), apiKey } };
+          const models = await loadCatalogModels();
+          return { provider: { ...buildZenmuxOpenaiProvider(models), apiKey } };
         },
       },
       staticCatalog: {
@@ -116,13 +122,16 @@ export default definePluginEntry({
       label: "ZenMux (Anthropic)",
       docsPath: "/providers/zenmux",
       envVars: ["ZENMUX_API_KEY"],
-      auth: [makeAuth("zenmux-anthropic")],
+      auth: [],
       catalog: {
         order: "simple",
         run: async (ctx) => {
-          const apiKey = ctx.resolveProviderApiKey("zenmux-anthropic").apiKey;
+          const apiKey =
+            ctx.resolveProviderApiKey("zenmux").apiKey ??
+            ctx.resolveProviderApiKey("zenmux-anthropic").apiKey;
           if (!apiKey) return null;
-          return { provider: { ...buildZenmuxAnthropicProvider(), apiKey } };
+          const models = await loadCatalogModels((model) => isZenmuxAnthropicModelId(model.id));
+          return { provider: { ...buildZenmuxAnthropicProvider(models), apiKey } };
         },
       },
       staticCatalog: {
@@ -149,13 +158,16 @@ export default definePluginEntry({
       label: "ZenMux (Vertex AI / Gemini)",
       docsPath: "/providers/zenmux",
       envVars: ["ZENMUX_API_KEY"],
-      auth: [makeAuth("zenmux-vertex")],
+      auth: [],
       catalog: {
         order: "simple",
         run: async (ctx) => {
-          const apiKey = ctx.resolveProviderApiKey("zenmux-vertex").apiKey;
+          const apiKey =
+            ctx.resolveProviderApiKey("zenmux").apiKey ??
+            ctx.resolveProviderApiKey("zenmux-vertex").apiKey;
           if (!apiKey) return null;
-          return { provider: { ...buildZenmuxGeminiProvider(), apiKey } };
+          const models = await loadCatalogModels((model) => isZenmuxGeminiModelId(model.id));
+          return { provider: { ...buildZenmuxGeminiProvider(models), apiKey } };
         },
       },
       staticCatalog: {
@@ -183,13 +195,14 @@ export default definePluginEntry({
       label: "ZenMux",
       docsPath: "/providers/zenmux",
       envVars: ["ZENMUX_API_KEY"],
-      auth: [makeAuth("zenmux")],
+      auth: [makeAuth()],
       catalog: {
         order: "simple",
         run: async (ctx) => {
           const apiKey = ctx.resolveProviderApiKey("zenmux").apiKey;
           if (!apiKey) return null;
-          return { provider: { ...buildZenmuxOpenaiProvider(), apiKey } };
+          const models = await loadCatalogModels();
+          return { provider: { ...buildZenmuxOpenaiProvider(models), apiKey } };
         },
       },
       staticCatalog: {
