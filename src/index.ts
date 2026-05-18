@@ -8,7 +8,11 @@ import { buildZenmuxVertexProvider } from "./provider-catalog-vertex.js";
 import { buildZenmuxGeminiProvider } from "./provider-catalog-gemini.js";
 import { buildZenmuxImageGenerationProvider } from "./image-generation-provider.js";
 import { createZenmuxGeminiTransportStreamFn, ZENMUX_GEMINI_BASE_URL } from "./transport-zenmux-gemini.js";
-import { isZenmuxAnthropicModelId, isZenmuxGeminiModelId } from "./zenmux-models.js";
+import {
+  isZenmuxAnthropicModelId,
+  isZenmuxGeminiModelId,
+  normalizeZenmuxGoogleModelId,
+} from "./zenmux-models.js";
 import {
   getZenmuxModelCapabilities,
   loadZenmuxModelDefinitions,
@@ -32,10 +36,12 @@ function buildDynamicModel(
   baseUrl: string,
   provider: string,
 ) {
-  const caps = getZenmuxModelCapabilities(ctx.modelId);
+  const modelId =
+    api === "google-generative-ai" ? normalizeZenmuxGoogleModelId(ctx.modelId) : ctx.modelId;
+  const caps = getZenmuxModelCapabilities(modelId) ?? getZenmuxModelCapabilities(ctx.modelId);
   return {
-    id: ctx.modelId,
-    name: caps?.name ?? ctx.modelId,
+    id: modelId,
+    name: caps?.name ?? modelId,
     api,
     provider,
     baseUrl,
@@ -174,10 +180,11 @@ export default definePluginEntry({
         order: "simple",
         run: async () => ({ provider: buildZenmuxGeminiProvider() }),
       },
+      normalizeModelId: ({ modelId }) => normalizeZenmuxGoogleModelId(modelId),
       resolveDynamicModel: (ctx) =>
         buildDynamicModel(ctx, "google-generative-ai", ZENMUX_GEMINI_BASE_URL, "zenmux-vertex"),
       prepareDynamicModel: async (ctx) => {
-        await loadZenmuxModelCapabilities(ctx.modelId);
+        await loadZenmuxModelCapabilities(normalizeZenmuxGoogleModelId(ctx.modelId));
       },
       createStreamFn: () => zenmuxGeminiStreamFn,
     });
@@ -209,6 +216,7 @@ export default definePluginEntry({
         order: "simple",
         run: async () => ({ provider: buildZenmuxOpenaiProvider() }),
       },
+      normalizeModelId: ({ modelId }) => normalizeZenmuxGoogleModelId(modelId),
       resolveDynamicModel: (ctx) => {
         if (ctx.modelId.startsWith("anthropic/claude-")) {
           return buildDynamicModel(
@@ -229,7 +237,7 @@ export default definePluginEntry({
         return buildDynamicModel(ctx, "openai-completions", ZENMUX_OPENAI_BASE_URL, "zenmux");
       },
       prepareDynamicModel: async (ctx) => {
-        await loadZenmuxModelCapabilities(ctx.modelId);
+        await loadZenmuxModelCapabilities(normalizeZenmuxGoogleModelId(ctx.modelId));
       },
       createStreamFn: (ctx) => {
         if (ctx.model.api === "google-generative-ai") {

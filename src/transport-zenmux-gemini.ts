@@ -35,6 +35,7 @@ import {
   sanitizeTransportPayloadText,
   stripSystemPromptCacheBoundary,
 } from "openclaw/plugin-sdk/provider-transport-runtime";
+import { normalizeZenmuxGoogleModelId } from "./zenmux-models.js";
 
 // ---------------------------------------------------------------------------
 // Self-contained helpers (replacing @mariozechner/pi-ai imports)
@@ -213,7 +214,8 @@ export function buildZenmuxGeminiUrl(modelId: string): string {
   // OpenClaw model refs arrive as "google/<id>" — strip the publisher prefix
   // before URL-encoding. Live-probe evidence 2026-05-08: the prefixed form
   // returns 404 invalid_model; the stripped form returns 200.
-  const bare = modelId.startsWith("google/") ? modelId.slice("google/".length) : modelId;
+  const normalized = normalizeZenmuxGoogleModelId(modelId);
+  const bare = normalized.startsWith("google/") ? normalized.slice("google/".length) : normalized;
   const encoded = encodeURIComponent(bare);
   return `${ZENMUX_GEMINI_BASE_URL}/publishers/google/models/${encoded}:streamGenerateContent?alt=sse`;
 }

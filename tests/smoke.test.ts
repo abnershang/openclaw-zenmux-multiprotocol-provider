@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { registerProviderPlugins, requireRegisteredProvider } from "openclaw/plugin-sdk/plugin-test-runtime";
 import {
   PROVIDER_IDS,
@@ -11,11 +11,24 @@ import {
 } from "../src/constants.js";
 import zenmuxPlugin from "../src/index.js";
 import { buildZenmuxGeminiUrl, _parseZenmuxGeminiSseForTesting } from "../src/transport-zenmux-gemini.js";
-import { staticZenmuxModelDefinitions } from "../src/zenmux-models.js";
+import {
+  normalizeZenmuxGoogleModelId,
+  staticZenmuxModelDefinitions,
+} from "../src/zenmux-models.js";
 import {
   _resetCacheForTesting,
   getZenmuxModelCapabilities,
 } from "../src/zenmux-capabilities-cache.js";
+
+vi.mock("openclaw/plugin-sdk/ssrf-runtime", () => ({
+  fetchWithSsrFGuard: vi.fn(async () => ({
+    response: new Response(JSON.stringify({ data: [] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }),
+    release: async () => {},
+  })),
+}));
 
 describe("constants", () => {
   it("exports correct base URLs", () => {
@@ -47,6 +60,32 @@ describe("provider registration", () => {
     expect(requireRegisteredProvider(providers, "zenmux-openai").auth).toHaveLength(0);
     expect(requireRegisteredProvider(providers, "zenmux-anthropic").auth).toHaveLength(0);
     expect(requireRegisteredProvider(providers, "zenmux-vertex").auth).toHaveLength(0);
+  });
+
+  it("normalizes Gemini preview aliases for the smart ZenMux provider", async () => {
+    const providers = await registerProviderPlugins(zenmuxPlugin);
+    const provider = requireRegisteredProvider(providers, "zenmux");
+
+    expect(
+      provider.normalizeModelId?.({
+        provider: "zenmux",
+        modelId: "google/gemini-3.1-flash-lite",
+      }),
+    ).toBe("google/gemini-3.1-flash-lite-preview");
+  });
+});
+
+describe("normalizeZenmuxGoogleModelId", () => {
+  it("mirrors OpenClaw Google preview aliases for Gemini 3.x", () => {
+    expect(normalizeZenmuxGoogleModelId("google/gemini-3.1-flash-lite")).toBe(
+      "google/gemini-3.1-flash-lite-preview",
+    );
+    expect(normalizeZenmuxGoogleModelId("gemini-3.1-pro")).toBe(
+      "gemini-3.1-pro-preview",
+    );
+    expect(normalizeZenmuxGoogleModelId("google/gemini-3.1-flash")).toBe(
+      "google/gemini-3-flash-preview",
+    );
   });
 });
 
@@ -102,6 +141,13 @@ describe("transport-zenmux-gemini URL builder", () => {
       "https://zenmux.ai/api/vertex-ai/v1/publishers/google/models/gemini-3.1-flash-lite-preview:streamGenerateContent?alt=sse",
     );
     expect(url).not.toContain("google%2F");
+  });
+
+  it("normalizes bare Gemini 3.1 Flash Lite before building the ZenMux URL", () => {
+    const url = buildZenmuxGeminiUrl("google/gemini-3.1-flash-lite");
+    expect(url).toBe(
+      "https://zenmux.ai/api/vertex-ai/v1/publishers/google/models/gemini-3.1-flash-lite-preview:streamGenerateContent?alt=sse",
+    );
   });
 });
 

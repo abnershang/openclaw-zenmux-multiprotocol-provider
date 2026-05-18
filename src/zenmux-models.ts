@@ -64,8 +64,8 @@ const STATIC_ZENMUX_MODELS: ModelDefinitionConfig[] = [
     maxTokens: ZENMUX_DEFAULT_MAX_TOKENS,
   },
   {
-    id: "google/gemini-3.1-flash-lite",
-    name: "Google: Gemini 3.1 Flash Lite",
+    id: "google/gemini-3.1-flash-lite-preview",
+    name: "Google: Gemini 3.1 Flash Lite Preview",
     reasoning: true,
     input: ["text", "image"],
     cost: { ...ZENMUX_DEFAULT_COST },
@@ -95,6 +95,34 @@ export function isZenmuxGeminiModelId(modelId: string): boolean {
     modelId.startsWith("google/lyria-") ||
     modelId.startsWith("google/imagen-")
   );
+}
+
+const GOOGLE_PROVIDER_PREFIX = "google/";
+
+export function normalizeZenmuxGoogleModelId(modelId: string): string {
+  if (modelId.startsWith(GOOGLE_PROVIDER_PREFIX)) {
+    const bareModelId = modelId.slice(GOOGLE_PROVIDER_PREFIX.length);
+    const normalizedBareModelId = normalizeZenmuxGoogleModelId(bareModelId);
+    return normalizedBareModelId === bareModelId
+      ? modelId
+      : `${GOOGLE_PROVIDER_PREFIX}${normalizedBareModelId}`;
+  }
+  if (modelId === "gemini-3-pro" || modelId === "gemini-3-pro-preview") {
+    return "gemini-3.1-pro-preview";
+  }
+  if (modelId === "gemini-3-flash") {
+    return "gemini-3-flash-preview";
+  }
+  if (modelId === "gemini-3.1-pro") {
+    return "gemini-3.1-pro-preview";
+  }
+  if (modelId === "gemini-3.1-flash-lite") {
+    return "gemini-3.1-flash-lite-preview";
+  }
+  if (modelId === "gemini-3.1-flash" || modelId === "gemini-3.1-flash-preview") {
+    return "gemini-3-flash-preview";
+  }
+  return modelId;
 }
 
 function cloneModelDefinition(model: ModelDefinitionConfig): ModelDefinitionConfig {
