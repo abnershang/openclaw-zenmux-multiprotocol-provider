@@ -10,7 +10,11 @@ import {
   ZENMUX_VERTEX_BASE_URL,
 } from "../src/constants.js";
 import zenmuxPlugin from "../src/index.js";
-import { buildZenmuxGeminiUrl, _parseZenmuxGeminiSseForTesting } from "../src/transport-zenmux-gemini.js";
+import {
+  buildZenmuxGeminiUrl,
+  _buildZenmuxGeminiPayloadForTesting,
+  _parseZenmuxGeminiSseForTesting,
+} from "../src/transport-zenmux-gemini.js";
 import {
   normalizeZenmuxGoogleModelId,
   staticZenmuxModelDefinitions,
@@ -197,6 +201,108 @@ describe("parseZenmuxGeminiSse", () => {
     const results = await _parseZenmuxGeminiSseForTesting(chunks);
     expect(results).toHaveLength(1);
     expect(results[0]).toEqual(good);
+  });
+});
+
+describe("transport-zenmux-gemini thought signatures", () => {
+  const gemini3Model = {
+    id: "google/gemini-3.1-flash-lite-preview",
+    provider: "zenmux",
+    api: "google-generative-ai",
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  };
+
+  function toolCallTurn(
+    blockOverrides: Record<string, unknown> = {},
+    messageOverrides: Record<string, unknown> = {},
+  ) {
+    return {
+      role: "assistant",
+      provider: "zenmux",
+      api: "google-generative-ai",
+      model: "google/gemini-3.1-flash-lite-preview",
+      stopReason: "toolUse",
+      timestamp: 0,
+      ...messageOverrides,
+      content: [
+        {
+          type: "toolCall",
+          id: "call_1",
+          name: "lookup",
+          arguments: { q: "hello" },
+          ...blockOverrides,
+        },
+      ],
+    };
+  }
+
+  function getModelTurns(params: { contents: Array<Record<string, unknown>> }) {
+    return params.contents.filter((turn) => turn.role === "model") as Array<{
+      parts: Array<Record<string, unknown>>;
+    }>;
+  }
+
+  it("adds Gemini 3 skip-validator fallback for unsigned tool-call history", () => {
+    const params = _buildZenmuxGeminiPayloadForTesting(gemini3Model, {
+      messages: [toolCallTurn()],
+    });
+
+    expect(getModelTurns(params)[0].parts[0]).toMatchObject({
+      thoughtSignature: "skip_thought_signature_validator",
+      functionCall: { name: "lookup", args: { q: "hello" } },
+    });
+  });
+
+  it("replays a previous same-route Gemini tool-call thought signature", () => {
+    const params = _buildZenmuxGeminiPayloadForTesting(gemini3Model, {
+      messages: [
+        toolCallTurn({ thoughtSignature: "call_sig_replay_1" }),
+        {
+          role: "toolResult",
+          toolName: "lookup",
+          content: [{ type: "text", text: "result" }],
+        },
+        toolCallTurn({ timestamp: 2 }),
+      ],
+    });
+
+    expect(getModelTurns(params).at(-1)?.parts[0]).toMatchObject({
+      thoughtSignature: "call_sig_replay_1",
+      functionCall: { name: "lookup", args: { q: "hello" } },
+    });
+  });
+
+  it("does not replay foreign-route signatures into ZenMux Gemini", () => {
+    const params = _buildZenmuxGeminiPayloadForTesting(gemini3Model, {
+      messages: [
+        toolCallTurn(
+          { thoughtSignature: "msg_01XFDUDYJgAACcnSM2TTgQsA" },
+          {
+            provider: "zenmux",
+            api: "anthropic-messages",
+            model: "anthropic/claude-sonnet-4.6",
+          },
+        ),
+      ],
+    });
+
+    expect(getModelTurns(params)[0].parts[0]).toMatchObject({
+      thoughtSignature: "skip_thought_signature_validator",
+      functionCall: { name: "lookup", args: { q: "hello" } },
+    });
+    expect(JSON.stringify(params.contents)).not.toContain("msg_01XFDUDYJgAACcnSM2TTgQsA");
+  });
+
+  it("does not add fallback signatures for non-Gemini-3 models", () => {
+    const params = _buildZenmuxGeminiPayloadForTesting(
+      { ...gemini3Model, id: "google/gemini-2.5-pro" },
+      { messages: [toolCallTurn({}, { model: "google/gemini-2.5-pro" })] },
+    );
+
+    expect(getModelTurns(params)[0].parts[0]).toEqual({
+      functionCall: { name: "lookup", args: { q: "hello" } },
+    });
   });
 });
 

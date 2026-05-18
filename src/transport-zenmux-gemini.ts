@@ -186,13 +186,107 @@ type GoogleSseChunk = {
 // ---------------------------------------------------------------------------
 
 let toolCallCounter = 0;
+const GEMINI_THOUGHT_SIGNATURE_VALIDATOR_SKIP = "skip_thought_signature_validator";
 
 function retainThoughtSignature(
   existing: string | undefined,
   incoming: string | undefined,
 ): string | undefined {
-  if (incoming) return incoming;
+  if (typeof incoming === "string" && incoming.length > 0) return incoming;
   return existing;
+}
+
+function normalizeLowercaseStringOrEmpty(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function requiresToolCallThoughtSignature(modelId: string): boolean {
+  return normalizeLowercaseStringOrEmpty(normalizeZenmuxGoogleModelId(modelId)).includes("gemini-3");
+}
+
+function stableStringifyGoogleToolCallValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringifyGoogleToolCallValue(item)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringifyGoogleToolCallValue(record[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function isJsonLikeThoughtSignature(value: string): boolean {
+  const trimmed = value.trim();
+  return (
+    trimmed.startsWith("{") ||
+    trimmed.startsWith("[") ||
+    trimmed.includes('":') ||
+    trimmed.includes('","') ||
+    trimmed.includes('"type"')
+  );
+}
+
+const GEMINI_THOUGHT_SIGNATURE_ELLIPSIS_RE = /[\u2026]|\.\.\./;
+const GEMINI_THOUGHT_SIGNATURE_BASE64_RE = /^[A-Za-z0-9+/=]+$/;
+
+function hasGeminiThoughtSignatureTruncationFootprint(value: string): boolean {
+  return (
+    GEMINI_THOUGHT_SIGNATURE_ELLIPSIS_RE.test(value) ||
+    (GEMINI_THOUGHT_SIGNATURE_BASE64_RE.test(value) && value.length % 4 !== 0)
+  );
+}
+
+function sanitizeGeminiThoughtSignature(
+  thoughtSignature: string | undefined,
+): string | undefined {
+  if (typeof thoughtSignature !== "string") {
+    return undefined;
+  }
+  const trimmed = thoughtSignature.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  if (isJsonLikeThoughtSignature(trimmed)) {
+    return undefined;
+  }
+  const lowered = normalizeLowercaseStringOrEmpty(trimmed);
+  if (
+    lowered === "reasoning" ||
+    lowered === normalizeLowercaseStringOrEmpty(GEMINI_THOUGHT_SIGNATURE_VALIDATOR_SKIP)
+  ) {
+    return undefined;
+  }
+  if (hasGeminiThoughtSignatureTruncationFootprint(trimmed)) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+function isSameZenmuxGeminiRoute(
+  source: { api?: string; provider?: string; model?: string },
+  model: ZenmuxGeminiModel,
+): boolean {
+  return (
+    source.provider === model.provider &&
+    source.api === "google-generative-ai" &&
+    model.api === "google-generative-ai" &&
+    source.model === model.id
+  );
+}
+
+function toolCallThoughtSignatureReplayKey(block: {
+  id: string;
+  name: string;
+  arguments: unknown;
+}): string {
+  return [
+    block.id,
+    block.name,
+    stableStringifyGoogleToolCallValue(coerceTransportToolCallArguments(block.arguments)),
+  ].join("\u0000");
 }
 
 function mapStopReason(reason: string): "stop" | "length" | "error" {
@@ -270,6 +364,8 @@ function buildZenmuxGeminiPayload(
   }
 
   const contents: Array<Record<string, unknown>> = [];
+  const replayToolCallThoughtSignatures = new Map<string, string>();
+  const shouldReplayToolCallThoughtSignature = requiresToolCallThoughtSignature(model.id);
 
   for (const msg of context.messages) {
     if (msg.role === "user") {
@@ -292,28 +388,33 @@ function buildZenmuxGeminiPayload(
     }
 
     if (msg.role === "assistant") {
-      const isSameModel = msg.provider === model.provider && msg.model === model.id;
+      const isSameRoute = isSameZenmuxGeminiRoute(msg, model);
       const parts: Array<Record<string, unknown>> = [];
+      const nextReplayToolCallThoughtSignatures = new Map<string, string>();
       for (const block of msg.content) {
         if (block.type === "text") {
           if (!block.text.trim()) continue;
+          const sanitizedTextSignature = isSameRoute
+            ? sanitizeGeminiThoughtSignature((block as { textSignature?: string }).textSignature)
+            : undefined;
           parts.push({
             text: sanitizeTransportPayloadText(block.text),
-            ...(isSameModel && (block as { textSignature?: string }).textSignature
-              ? { thoughtSignature: (block as { textSignature?: string }).textSignature }
-              : {}),
+            ...(sanitizedTextSignature ? { thoughtSignature: sanitizedTextSignature } : {}),
           });
           continue;
         }
         if (block.type === "thinking") {
           const thinkBlock = block as { thinking: string; thinkingSignature?: string };
           if (!thinkBlock.thinking.trim()) continue;
-          if (isSameModel) {
+          if (isSameRoute) {
+            const sanitizedThinkingSignature = sanitizeGeminiThoughtSignature(
+              thinkBlock.thinkingSignature,
+            );
             parts.push({
               thought: true,
               text: sanitizeTransportPayloadText(thinkBlock.thinking),
-              ...(thinkBlock.thinkingSignature
-                ? { thoughtSignature: thinkBlock.thinkingSignature }
+              ...(sanitizedThinkingSignature
+                ? { thoughtSignature: sanitizedThinkingSignature }
                 : {}),
             });
           } else {
@@ -323,16 +424,38 @@ function buildZenmuxGeminiPayload(
         }
         if (block.type === "toolCall") {
           const tcBlock = block as { id: string; name: string; arguments: Record<string, unknown>; thoughtSignature?: string };
+          const replayKey = toolCallThoughtSignatureReplayKey(tcBlock);
+          const replayedThoughtSignature =
+            shouldReplayToolCallThoughtSignature && isSameRoute
+              ? replayToolCallThoughtSignatures.get(replayKey)
+              : undefined;
+          // Use a block's own same-route signature first; otherwise fall back
+          // to a same-route replayed value from already-converted context.
+          // Never replay signatures from foreign providers; Gemini requires
+          // its own signatures returned exactly as issued.
+          const ownSignature = isSameRoute
+            ? sanitizeGeminiThoughtSignature(tcBlock.thoughtSignature)
+            : undefined;
+          if (ownSignature) {
+            nextReplayToolCallThoughtSignatures.set(replayKey, ownSignature);
+          }
+          const thoughtSignature =
+            ownSignature ??
+            replayedThoughtSignature ??
+            (shouldReplayToolCallThoughtSignature
+              ? GEMINI_THOUGHT_SIGNATURE_VALIDATOR_SKIP
+              : undefined);
           parts.push({
             functionCall: {
               name: tcBlock.name,
               args: coerceTransportToolCallArguments(tcBlock.arguments),
             },
-            ...(isSameModel && tcBlock.thoughtSignature
-              ? { thoughtSignature: tcBlock.thoughtSignature }
-              : {}),
+            ...(thoughtSignature ? { thoughtSignature } : {}),
           });
         }
+      }
+      for (const [key, signature] of nextReplayToolCallThoughtSignatures) {
+        replayToolCallThoughtSignatures.set(key, signature);
       }
       if (parts.length > 0) contents.push({ role: "model", parts });
       continue;
@@ -575,6 +698,16 @@ export function createZenmuxGeminiTransportStreamFn(): unknown {
               const hasText = typeof part.text === "string";
 
               if (hasText || (hasThoughtSig && !part.functionCall)) {
+                if (hasThoughtSig && !hasText && part.thought !== true) {
+                  const latestBlock = output.content[output.content.length - 1];
+                  if (latestBlock?.type === "toolCall") {
+                    latestBlock.thoughtSignature = retainThoughtSignature(
+                      latestBlock.thoughtSignature,
+                      part.thoughtSignature,
+                    );
+                    continue;
+                  }
+                }
                 const isThinking = part.thought === true || !hasText;
                 const currentBlock = output.content[currentBlockIndex];
 
@@ -643,6 +776,15 @@ export function createZenmuxGeminiTransportStreamFn(): unknown {
                 const isDup = output.content.some(
                   (b) => b.type === "toolCall" && b.id === providedId,
                 );
+                const existingToolCall =
+                  typeof providedId === "string"
+                    ? output.content.find(
+                        (
+                          b,
+                        ): b is Extract<GoogleTransportContentBlock, { type: "toolCall" }> =>
+                          b.type === "toolCall" && b.id === providedId,
+                      )
+                    : undefined;
                 const toolCallId =
                   providedId && !isDup
                     ? providedId
@@ -652,7 +794,10 @@ export function createZenmuxGeminiTransportStreamFn(): unknown {
                   id: toolCallId,
                   name: part.functionCall.name ?? "",
                   arguments: part.functionCall.args ?? {},
-                  thoughtSignature: part.thoughtSignature,
+                  thoughtSignature: retainThoughtSignature(
+                    existingToolCall?.thoughtSignature,
+                    part.thoughtSignature,
+                  ),
                 };
                 output.content.push(toolCall);
                 const blockIndex = output.content.length - 1;
@@ -721,4 +866,17 @@ export async function _parseZenmuxGeminiSseForTesting(
     results.push(chunk);
   }
   return results;
+}
+
+/** @internal Exported for unit tests only. */
+export function _buildZenmuxGeminiPayloadForTesting(
+  model: unknown,
+  context: unknown,
+  options?: unknown,
+): GoogleGenerateContentRequest {
+  return buildZenmuxGeminiPayload(
+    model as ZenmuxGeminiModel,
+    context as ZenmuxGeminiContext,
+    options as GoogleTransportOptions | undefined,
+  );
 }
